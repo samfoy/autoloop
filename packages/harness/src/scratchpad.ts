@@ -36,12 +36,21 @@ function collectScratchpadEntries(lines: string[]): ScratchpadEntry[] {
   const entries: ScratchpadEntry[] = [];
   for (const line of lines) {
     const event = decodeEvent(line);
-    if (
-      !event ||
-      event.shape !== "fields" ||
-      event.topic !== "iteration.finish"
-    )
+    if (!event || event.shape !== "fields") continue;
+
+    // Insert a resume marker so the agent knows the run was resumed
+    if (event.topic === "loop.resume") {
+      const reason = event.fields.previous_stop_reason ?? "unknown";
+      const addIter = event.fields.add_iterations ?? "?";
+      entries.push({
+        iteration: "",
+        exitCode: "",
+        output: `--- resumed (was: ${reason}, adding ${addIter} iterations) ---`,
+      });
       continue;
+    }
+
+    if (event.topic !== "iteration.finish") continue;
     entries.push({
       iteration: event.iteration ?? "",
       exitCode: event.fields.exit_code ?? "",

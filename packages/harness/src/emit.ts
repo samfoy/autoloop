@@ -54,6 +54,7 @@ const CORE_SYSTEM_TOPICS = new Set([
   "evidence.captured",
   "evidence.gate_failed",
   "evidence.gate_exhausted",
+  "loop.resume",
 ]);
 
 export function coreSystemTopic(topic: string): boolean {
