@@ -216,6 +216,10 @@ export function routingTopic(topic: string): boolean {
     "event.invalid",
     "operator.guidance",
     "operator.guidance.consumed",
+    "evidence.captured",
+    "evidence.gate_failed",
+    "evidence.gate_exhausted",
+    "loop.resume",
     "",
   ]);
   if (nonRouting.has(topic)) return false;
