@@ -16,6 +16,7 @@ import {
 } from "@mobrienv/autoloop-core";
 import { loadAgentMap } from "@mobrienv/autoloop-core/agent-map";
 import * as config from "@mobrienv/autoloop-core/config";
+import { parseEvidenceConfig } from "./evidence.js";
 import {
   presetCategory,
   resolveIsolationMode,
@@ -516,6 +517,9 @@ export function reloadLoop(loop: LoopContext): LoopContext {
         : {}),
     },
     agentMap: loadAgentMap(pd),
+    evidence: parseEvidenceConfig(config.loadRawProject(pd)),
+    lastEvidence: loop.lastEvidence,
+    lastGateFailure: loop.lastGateFailure,
     onEvent: loop.onEvent,
   };
   return applyRuntimeModeOverrides(updated);

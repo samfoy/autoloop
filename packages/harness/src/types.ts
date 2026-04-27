@@ -2,6 +2,7 @@ import type { AgentMap } from "@mobrienv/autoloop-core/agent-map";
 import type * as topo from "@mobrienv/autoloop-core/topology";
 import type { KiroSessionHandle } from "./backend/kiro-bridge.js";
 import type { LoopEventEmitter } from "./events.js";
+import type { EvidenceConfig } from "./evidence.js";
 
 export type TriggerSource = "cli" | "chain" | "branch";
 
@@ -88,6 +89,12 @@ export interface LoopContext {
   agentMap: AgentMap | null;
   kiroSession?: KiroSessionHandle;
   lastVerdict?: Verdict;
+  /** Evidence capture configuration, parsed from [evidence] config section. */
+  evidence?: EvidenceConfig;
+  /** Rendered evidence prompt from the last iteration, injected into the next iteration. */
+  lastEvidence?: string;
+  /** Rendered gate failure prompt when evidence gates fail, injected into the retry iteration. */
+  lastGateFailure?: string;
   /** Optional structured-event emitter, forwarded from RunOptions.onEvent. */
   onEvent?: LoopEventEmitter;
 }

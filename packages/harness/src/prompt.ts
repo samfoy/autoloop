@@ -304,6 +304,7 @@ export function renderIterationPromptText(
     "Objective:\n" +
     loop.objective +
     "\n\n" +
+    renderEvidenceSection(loop) +
     renderGuidanceSection(guidanceMessages) +
     (memoryText ? `${memoryText}\n` : "") +
     (tasksText ? `${tasksText}\n` : "") +
@@ -485,6 +486,26 @@ function renderGuidanceSection(guidance: string[]): string {
     body +
     "\n\n\u26a0\ufe0f Act on this guidance in this iteration. It will not be repeated.\n\n"
   );
+}
+
+/**
+ * Render evidence from the previous iteration for prompt injection.
+ * Includes harness-captured evidence and/or gate failure context.
+ */
+function renderEvidenceSection(loop: LoopContext): string {
+  // Gate failure takes priority — the current role needs to fix the issue
+  if (loop.lastGateFailure) {
+    const text = loop.lastGateFailure;
+    loop.lastGateFailure = undefined; // consume once
+    return text;
+  }
+  // Normal evidence from previous iteration
+  if (loop.lastEvidence) {
+    const text = loop.lastEvidence;
+    loop.lastEvidence = undefined; // consume once
+    return text;
+  }
+  return "";
 }
 
 function harnessInstructionsText(loop: LoopContext): string {

@@ -92,6 +92,17 @@ export function loadProject(projectDir: string): Config {
   return loadLayered(projectDir).config;
 }
 
+/**
+ * Load the raw (un-stringified) TOML config for a project directory.
+ * Preserves array structures like [[evidence.source]] that the normal
+ * stringified config pipeline flattens.
+ */
+export function loadRawProject(projectDir: string): Record<string, unknown> {
+  const path = resolveConfigPath(projectDir);
+  if (!existsSync(path)) return {};
+  return parseRawToml(readFileSync(path, "utf-8"));
+}
+
 export function load(path: string): Config {
   if (!existsSync(path)) return defaults();
   return parseToml(readFileSync(path, "utf-8"));

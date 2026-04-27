@@ -51,6 +51,9 @@ const CORE_SYSTEM_TOPICS = new Set([
   "backend.start",
   "backend.finish",
   "event.invalid",
+  "evidence.captured",
+  "evidence.gate_failed",
+  "evidence.gate_exhausted",
 ]);
 
 export function coreSystemTopic(topic: string): boolean {
