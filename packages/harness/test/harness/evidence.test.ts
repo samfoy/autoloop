@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   captureEvidence,
+  checkProtectedPaths,
   defaultEvidenceConfig,
   defaultSource,
   evidenceToJournalPayload,
+  globMatch,
   parseEvidenceConfig,
   renderEvidencePrompt,
   renderGateFailurePrompt,
@@ -259,7 +261,7 @@ describe("renderEvidencePrompt", () => {
           gate_passed: true,
         },
       ],
-      overall_gate_passed: true,
+      overall_gate_passed: true, protected_path_violations: [],
     };
 
     const rendered = renderEvidencePrompt(evidence);
@@ -286,7 +288,7 @@ describe("renderEvidencePrompt", () => {
           gate_passed: false,
         },
       ],
-      overall_gate_passed: false,
+      overall_gate_passed: false, protected_path_violations: [],
     };
 
     const rendered = renderEvidencePrompt(evidence);
@@ -299,7 +301,7 @@ describe("renderEvidencePrompt", () => {
       role: "builder",
       captured_at: "2026-04-27T00:00:00Z",
       results: [],
-      overall_gate_passed: true,
+      overall_gate_passed: true, protected_path_violations: [],
     };
     expect(renderEvidencePrompt(evidence)).toBe("");
   });
@@ -331,7 +333,7 @@ describe("renderGateFailurePrompt", () => {
           gate_passed: true,
         },
       ],
-      overall_gate_passed: false,
+      overall_gate_passed: false, protected_path_violations: [],
     };
 
     const rendered = renderGateFailurePrompt(evidence);
@@ -360,7 +362,7 @@ describe("evidenceToJournalPayload", () => {
           gate_passed: null,
         },
       ],
-      overall_gate_passed: true,
+      overall_gate_passed: true, protected_path_violations: [],
     };
 
     const payload = evidenceToJournalPayload(evidence);
@@ -372,5 +374,167 @@ describe("evidenceToJournalPayload", () => {
     expect(parsed.sources[0].exit).toBe(0);
     // Full stdout should NOT be in the journal payload (it's on disk)
     expect(payload).not.toContain("lots of diff output");
+  });
+
+  it("includes protected path violations in payload", () => {
+    const evidence: IterationEvidence = {
+      iteration: 2,
+      role: "builder",
+      captured_at: "2026-04-27T00:00:00Z",
+      results: [],
+      overall_gate_passed: false,
+      protected_path_violations: ["src/extensions/rhai.ts"],
+    };
+    const payload = evidenceToJournalPayload(evidence);
+    const parsed = JSON.parse(payload);
+    expect(parsed.protected_path_violations).toEqual(["src/extensions/rhai.ts"]);
+  });
+});
+
+describe("globMatch", () => {
+  it("matches exact paths", () => {
+    expect(globMatch("src/auth.ts", "src/auth.ts")).toBe(true);
+    expect(globMatch("src/auth.ts", "src/other.ts")).toBe(false);
+  });
+
+  it("matches * wildcard (single segment)", () => {
+    expect(globMatch("src/auth.ts", "src/*.ts")).toBe(true);
+    expect(globMatch("src/auth.ts", "lib/*.ts")).toBe(false);
+    // * should NOT cross directory boundaries
+    expect(globMatch("src/deep/auth.ts", "src/*.ts")).toBe(false);
+  });
+
+  it("matches ** wildcard (multiple segments)", () => {
+    expect(globMatch("src/extensions/rhai.ts", "src/extensions/**")).toBe(true);
+    expect(globMatch("src/extensions/deep/nested.ts", "src/extensions/**")).toBe(true);
+    expect(globMatch("src/other/file.ts", "src/extensions/**")).toBe(false);
+  });
+
+  it("matches prefix when no wildcards", () => {
+    expect(globMatch("package.json", "package.json")).toBe(true);
+    expect(globMatch("src/auth.ts", "src/")).toBe(true);
+    expect(globMatch("lib/auth.ts", "src/")).toBe(false);
+  });
+
+  it("handles complex patterns", () => {
+    expect(globMatch("src/routes/auth/login.ts", "src/**/login.ts")).toBe(true);
+    expect(globMatch("src/login.ts", "src/**/login.ts")).toBe(true);
+    expect(globMatch("test/auth.test.ts", "**/*.test.ts")).toBe(true);
+  });
+});
+
+describe("checkProtectedPaths", () => {
+  it("returns empty violations in a clean git repo", () => {
+    const dir = tmpDir();
+    // Init a git repo with a commit so HEAD exists
+    require("node:child_process").execSync(
+      'git init && git config user.email "test@test" && git config user.name "test" && echo "hi" > file.txt && git add . && git commit -m init',
+      { cwd: dir },
+    );
+    const result = checkProtectedPaths(["src/**"], dir);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("detects violations when protected files are modified", () => {
+    const dir = tmpDir();
+    require("node:child_process").execSync(
+      'git init && git config user.email "test@test" && git config user.name "test" && mkdir -p src/extensions && echo "original" > src/extensions/rhai.ts && echo "safe" > src/auth.ts && git add . && git commit -m init',
+      { cwd: dir },
+    );
+    // Modify a protected file
+    writeFileSync(join(dir, "src/extensions/rhai.ts"), "modified");
+    // Also modify a non-protected file
+    writeFileSync(join(dir, "src/auth.ts"), "also modified");
+
+    const result = checkProtectedPaths(["src/extensions/**"], dir);
+    expect(result.violations).toEqual(["src/extensions/rhai.ts"]);
+  });
+
+  it("returns empty for non-git directories", () => {
+    const dir = tmpDir();
+    const result = checkProtectedPaths(["src/**"], dir);
+    expect(result.violations).toEqual([]);
+  });
+});
+
+describe("captureEvidence with protected paths", () => {
+  it("gates on protected path violations when action is gate", () => {
+    const dir = tmpDir();
+    require("node:child_process").execSync(
+      'git init && git config user.email "test@test" && git config user.name "test" && mkdir -p src/extensions && echo "original" > src/extensions/rhai.ts && git add . && git commit -m init',
+      { cwd: dir },
+    );
+    writeFileSync(join(dir, "src/extensions/rhai.ts"), "modified");
+
+    const stateDir = tmpDir();
+    const config: EvidenceConfig = {
+      ...defaultEvidenceConfig(),
+      enabled: true,
+      sources: [defaultSource({ id: "echo", command: "echo ok" })],
+      protected_paths: ["src/extensions/**"],
+      protected_paths_action: "gate",
+    };
+
+    const evidence = captureEvidence(config, dir, stateDir, 1, "builder");
+    expect(evidence.overall_gate_passed).toBe(false);
+    expect(evidence.protected_path_violations).toContain("src/extensions/rhai.ts");
+  });
+
+  it("warns but does not gate when action is warn", () => {
+    const dir = tmpDir();
+    require("node:child_process").execSync(
+      'git init && git config user.email "test@test" && git config user.name "test" && mkdir -p src/extensions && echo "original" > src/extensions/rhai.ts && git add . && git commit -m init',
+      { cwd: dir },
+    );
+    writeFileSync(join(dir, "src/extensions/rhai.ts"), "modified");
+
+    const stateDir = tmpDir();
+    const config: EvidenceConfig = {
+      ...defaultEvidenceConfig(),
+      enabled: true,
+      sources: [defaultSource({ id: "echo", command: "echo ok" })],
+      protected_paths: ["src/extensions/**"],
+      protected_paths_action: "warn",
+    };
+
+    const evidence = captureEvidence(config, dir, stateDir, 1, "builder");
+    // Gate should pass (warn only)
+    expect(evidence.overall_gate_passed).toBe(true);
+    // But violations should still be recorded
+    expect(evidence.protected_path_violations).toContain("src/extensions/rhai.ts");
+  });
+});
+
+describe("renderEvidencePrompt with protected path violations", () => {
+  it("includes protected path warning section", () => {
+    const evidence: IterationEvidence = {
+      iteration: 4,
+      role: "builder",
+      captured_at: "2026-04-27T00:00:00Z",
+      results: [],
+      overall_gate_passed: true,
+      protected_path_violations: ["src/extensions/rhai.ts", "package.json"],
+    };
+    const rendered = renderEvidencePrompt(evidence);
+    expect(rendered).toContain("Protected Path Violations");
+    expect(rendered).toContain("src/extensions/rhai.ts");
+    expect(rendered).toContain("package.json");
+  });
+});
+
+describe("renderGateFailurePrompt with protected paths", () => {
+  it("includes protected path violation in gate failure", () => {
+    const evidence: IterationEvidence = {
+      iteration: 3,
+      role: "builder",
+      captured_at: "2026-04-27T00:00:00Z",
+      results: [],
+      overall_gate_passed: false,
+      protected_path_violations: ["src/extensions/rhai.ts"],
+    };
+    const rendered = renderGateFailurePrompt(evidence);
+    expect(rendered).toContain("Protected Path Violation");
+    expect(rendered).toContain("src/extensions/rhai.ts");
+    expect(rendered).toContain("Revert these changes");
   });
 });

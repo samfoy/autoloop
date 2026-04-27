@@ -23,6 +23,40 @@ core.state_dir = ".autoloop"
 core.journal_file = ".autoloop/journal.jsonl"
 core.memory_file = ".autoloop/memory.jsonl"
 
+# Harness evidence: captures ground truth between iterations.
+# git-diff runs after every iteration; test/typecheck gates are commented
+# out because the commands are project-specific — uncomment and configure.
+[evidence]
+enabled = true
+
+[[evidence.source]]
+id = "git-diff"
+command = "git diff --stat HEAD"
+timeout_ms = 5000
+budget_chars = 2000
+
+[[evidence.source]]
+id = "git-diff-full"
+command = "git diff HEAD"
+timeout_ms = 10000
+budget_chars = 6000
+roles = ["builder"]
+
+# Uncomment and configure for your project:
+# [[evidence.source]]
+# id = "test-runner"
+# command = "npm test -- --watchAll=false 2>&1"
+# timeout_ms = 120000
+# roles = ["builder"]
+# gate = true
+
+# [[evidence.source]]
+# id = "type-check"
+# command = "npx tsc --noEmit 2>&1"
+# timeout_ms = 60000
+# roles = ["builder"]
+# gate = true
+
 # Kiro backend (persistent ACP session):
 # backend.kind = "kiro"
 # backend.command = "kiro-cli"

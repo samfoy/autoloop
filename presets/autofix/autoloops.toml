@@ -22,3 +22,19 @@ harness.instructions_file = "harness.md"
 core.state_dir = ".autoloop"
 core.journal_file = ".autoloop/journal.jsonl"
 core.memory_file = ".autoloop/memory.jsonl"
+
+[evidence]
+enabled = true
+
+[[evidence.source]]
+id = "git-diff"
+command = "git diff --stat HEAD"
+timeout_ms = 5000
+budget_chars = 2000
+
+[[evidence.source]]
+id = "git-diff-full"
+command = "git diff HEAD"
+timeout_ms = 10000
+budget_chars = 6000
+roles = ["fixer"]

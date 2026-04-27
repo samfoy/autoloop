@@ -45,6 +45,7 @@ export interface IterationEvidence {
   captured_at: string;
   results: EvidenceResult[];
   overall_gate_passed: boolean;
+  protected_path_violations: string[];
 }
 
 export interface EvidenceConfig {
@@ -189,7 +190,27 @@ export function captureEvidence(
     results.push(result);
   }
 
-  const overall = results.every((r) => r.gate_passed !== false);
+  // Check protected paths if configured
+  let protectedPathResult: ProtectedPathResult | null = null;
+  if (config.protected_paths.length > 0) {
+    protectedPathResult = checkProtectedPaths(config.protected_paths, workDir);
+    if (protectedPathResult.violations.length > 0) {
+      writeFileSync(
+        join(evidenceDir, "protected-paths.txt"),
+        protectedPathResult.violations.join("\n"),
+      );
+    }
+  }
+
+  // Gate evaluation: source gates AND protected path gates
+  let overall = results.every((r) => r.gate_passed !== false);
+  if (
+    protectedPathResult &&
+    protectedPathResult.violations.length > 0 &&
+    config.protected_paths_action === "gate"
+  ) {
+    overall = false;
+  }
 
   return {
     iteration,
@@ -197,6 +218,7 @@ export function captureEvidence(
     captured_at: new Date().toISOString(),
     results,
     overall_gate_passed: overall,
+    protected_path_violations: protectedPathResult?.violations ?? [],
   };
 }
 
@@ -267,13 +289,110 @@ export function runEvidenceSource(
   };
 }
 
+// ── Protected Paths ─────────────────────────────────────────────────────────
+
+export interface ProtectedPathResult {
+  /** Files in the diff that matched a protected path pattern */
+  violations: string[];
+}
+
+/**
+ * Check git diff for files matching protected path glob patterns.
+ * Uses `git diff --name-only HEAD` to get changed files, then matches
+ * against the glob patterns.
+ */
+export function checkProtectedPaths(
+  patterns: string[],
+  workDir: string,
+): ProtectedPathResult {
+  let changedFiles: string[];
+  try {
+    const output = execSync("git diff --name-only HEAD", {
+      cwd: workDir,
+      timeout: 5000,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    changedFiles = (output ?? "")
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
+  } catch {
+    // If git diff fails (not a git repo, no HEAD, etc.), no violations
+    return { violations: [] };
+  }
+
+  if (changedFiles.length === 0) return { violations: [] };
+
+  const violations: string[] = [];
+  for (const file of changedFiles) {
+    for (const pattern of patterns) {
+      if (globMatch(file, pattern)) {
+        violations.push(file);
+        break; // Don't double-count a file
+      }
+    }
+  }
+
+  return { violations };
+}
+
+/**
+ * Simple glob matching supporting * and ** patterns.
+ * - `*` matches any characters except /
+ * - `**` matches any characters including /
+ * - Patterns without wildcards match as prefixes
+ */
+export function globMatch(filePath: string, pattern: string): boolean {
+  // Exact match
+  if (filePath === pattern) return true;
+
+  // If pattern has no wildcards, treat as prefix match
+  if (!pattern.includes("*")) {
+    return filePath.startsWith(pattern);
+  }
+
+  // Convert glob to regex
+  let regex = "^";
+  let i = 0;
+  while (i < pattern.length) {
+    if (pattern[i] === "*" && pattern[i + 1] === "*") {
+      // ** matches everything including /
+      regex += ".*";
+      i += 2;
+      // Skip trailing / after **
+      if (pattern[i] === "/") i++;
+    } else if (pattern[i] === "*") {
+      // * matches everything except /
+      regex += "[^/]*";
+      i++;
+    } else if (pattern[i] === "?") {
+      regex += "[^/]";
+      i++;
+    } else if (".+^${}()|[]\\".includes(pattern[i])) {
+      regex += "\\" + pattern[i];
+      i++;
+    } else {
+      regex += pattern[i];
+      i++;
+    }
+  }
+  regex += "$";
+
+  try {
+    return new RegExp(regex).test(filePath);
+  } catch {
+    return false;
+  }
+}
+
 // ── Prompt Rendering ────────────────────────────────────────────────────────
 
 /**
  * Render evidence results into a markdown section for prompt injection.
  */
 export function renderEvidencePrompt(evidence: IterationEvidence): string {
-  if (evidence.results.length === 0) return "";
+  if (evidence.results.length === 0 && evidence.protected_path_violations.length === 0) return "";
 
   let out = `## Harness Evidence (iteration ${evidence.iteration}, role: ${evidence.role})\n\n`;
   out +=
@@ -307,6 +426,16 @@ export function renderEvidencePrompt(evidence: IterationEvidence): string {
     }
   }
 
+  // Protected path violations
+  if (evidence.protected_path_violations.length > 0) {
+    out += "### ⚠️ Protected Path Violations\n\n";
+    out += "The following files are marked as protected and were modified this iteration:\n\n";
+    for (const file of evidence.protected_path_violations) {
+      out += `- \`${file}\`\n`;
+    }
+    out += "\nVerify these changes are intentional and within scope of the current task.\n\n";
+  }
+
   return out;
 }
 
@@ -315,7 +444,7 @@ export function renderEvidencePrompt(evidence: IterationEvidence): string {
  */
 export function renderGateFailurePrompt(evidence: IterationEvidence): string {
   const failures = evidence.results.filter((r) => r.gate_passed === false);
-  if (failures.length === 0) return "";
+  if (failures.length === 0 && evidence.protected_path_violations.length === 0) return "";
 
   let out = "## Evidence Gate Failure\n\n";
   out +=
@@ -330,6 +459,16 @@ export function renderGateFailurePrompt(evidence: IterationEvidence): string {
       f.source_id,
     );
     out += "```\n" + content + "\n```\n\n";
+  }
+
+  // Protected path violations as gate failure
+  if (evidence.protected_path_violations.length > 0) {
+    out += "### Protected Path Violation ❌\n\n";
+    out += "You modified protected files. Revert these changes or explain why they are necessary for the current task:\n\n";
+    for (const file of evidence.protected_path_violations) {
+      out += `- \`${file}\`\n`;
+    }
+    out += "\n";
   }
 
   return out;
@@ -365,5 +504,8 @@ export function evidenceToJournalPayload(evidence: IterationEvidence): string {
     role: evidence.role,
     gate_passed: evidence.overall_gate_passed,
     sources: summaries,
+    ...(evidence.protected_path_violations.length > 0
+      ? { protected_path_violations: evidence.protected_path_violations }
+      : {}),
   });
 }
