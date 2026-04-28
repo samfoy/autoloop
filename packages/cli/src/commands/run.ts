@@ -365,12 +365,11 @@ function defaultChainProjectDir(bundleRoot: string): string {
 
 function chainableOptions(opts: RunOptions): Record<string, unknown> {
   return {
-    backendOverride: opts.backendOverride,
+    backendOverride: Object.keys(opts.backendOverride).length > 0 ? opts.backendOverride : undefined,
     worktree: opts.worktree || undefined,
     noWorktree: opts.noWorktree || undefined,
     mergeStrategy: opts.mergeStrategy,
     automerge: opts.automerge || undefined,
     keepWorktree: opts.keepWorktree || undefined,
-    backendOverride: Object.keys(opts.backendOverride).length > 0 ? opts.backendOverride : undefined,
   };
 }

@@ -1,32 +1,21 @@
-name = "autocode"
-completion = "task.complete"
+[roles]
 
-[[role]]
-id = "planner"
-emits = ["tasks.ready"]
+[roles.planner]
 prompt_file = "roles/planner.md"
 
-[[role]]
-id = "builder"
-emits = ["review.ready", "build.blocked"]
-prompt_file = "roles/build.md"
+[roles.builder]
+prompt_file = "roles/builder.md"
 
-[[role]]
-id = "critic"
-emits = ["review.passed", "review.rejected"]
+[roles.critic]
 prompt_file = "roles/critic.md"
 
-[[role]]
-id = "finalizer"
-emits = ["queue.advance", "finalization.failed", "task.complete"]
+[roles.finalizer]
 prompt_file = "roles/finalizer.md"
 
 [handoff]
 "loop.start" = ["planner"]
-"queue.advance" = ["planner"]
+"queue.advance" = ["builder"]
 "build.blocked" = ["planner", "finalizer"]
 "tasks.ready" = ["builder"]
 "review.ready" = ["critic"]
 "review.rejected" = ["builder"]
-"review.passed" = ["finalizer"]
-"finalization.failed" = ["builder"]

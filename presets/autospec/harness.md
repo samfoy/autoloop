@@ -9,7 +9,7 @@ Global rules:
 - If the repo has a clearly stronger local planning convention, follow it and record that decision explicitly in `{{STATE_DIR}}/spec-brief.md`.
 - Prefer the smallest artifact set that fully captures the decision. Keep intermediate files concise.
 - Use the event tool instead of prose-only handoffs.
-- Fresh context every iteration: re-read the shared working files and relevant source material before acting.
+- Fresh context every iteration: re-read the shared working files before acting. Do NOT re-read raw source documents (PDD, CONTEXT, etc.) once they have been synthesized into spec-brief.md and spec-research.md — redundant reads waste context budget.
 - Do not implement product code. This loop writes and revises planning/specification artifacts only.
 - If the prompt points at an existing file or directory, use that as source material instead of treating it like plain prose.
 - Missing evidence means no completion. If something is unresolved, say so explicitly.
