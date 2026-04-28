@@ -1,9 +1,17 @@
 {
   "name": "@mobrienv/autoloop",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "description": "Simpler, opinionated loop harness for inspectable long-running agent workflows",
   "type": "module",
-  "main": "dist/main.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "autoloop": "bin/autoloop"
   },
@@ -32,6 +40,9 @@
   "engines": {
     "node": ">=18"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mikeyobrien/autoloop.git"
@@ -53,7 +64,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build -w @mobrienv/autoloop-core && npm run build -w @mobrienv/autoloop-harness && npm run build -w @mobrienv/autoloop-cli && tsc",
     "lint": "biome check src/ test/",
     "lint:fix": "biome check --write src/ test/",
     "format": "biome format src/ test/",
@@ -86,9 +97,8 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.18.0",
-    "@hono/node-server": "^1.19.12",
-    "@iarna/toml": "^2.2.5",
-    "hono": "^4.12.10"
+    "@mobrienv/autoloop-cli": "*",
+    "@mobrienv/autoloop-core": "*",
+    "@mobrienv/autoloop-harness": "*"
   }
 }

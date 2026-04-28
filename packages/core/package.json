@@ -1,0 +1,125 @@
+{
+  "name": "@mobrienv/autoloop-core",
+  "version": "0.6.0",
+  "description": "Pure core utilities for autoloop (events, journal, topology, config schema)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./journal": {
+      "types": "./dist/journal.d.ts",
+      "default": "./dist/journal.js"
+    },
+    "./journal-format": {
+      "types": "./dist/journal-format.d.ts",
+      "default": "./dist/journal-format.js"
+    },
+    "./topology": {
+      "types": "./dist/topology.d.ts",
+      "default": "./dist/topology.js"
+    },
+    "./config-schema": {
+      "types": "./dist/config-schema.d.ts",
+      "default": "./dist/config-schema.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./agent-map": {
+      "types": "./dist/agent-map.d.ts",
+      "default": "./dist/agent-map.js"
+    },
+    "./profiles": {
+      "types": "./dist/profiles.d.ts",
+      "default": "./dist/profiles.js"
+    },
+    "./tasks": {
+      "types": "./dist/tasks.d.ts",
+      "default": "./dist/tasks.js"
+    },
+    "./memory": {
+      "types": "./dist/memory.d.ts",
+      "default": "./dist/memory.js"
+    },
+    "./memory-render": {
+      "types": "./dist/memory-render.d.ts",
+      "default": "./dist/memory-render.js"
+    },
+    "./tasks-render": {
+      "types": "./dist/tasks-render.d.ts",
+      "default": "./dist/tasks-render.js"
+    },
+    "./registry": {
+      "types": "./dist/registry/index.d.ts",
+      "default": "./dist/registry/index.js"
+    },
+    "./registry/discover": {
+      "types": "./dist/registry/discover.d.ts",
+      "default": "./dist/registry/discover.js"
+    },
+    "./registry/read": {
+      "types": "./dist/registry/read.d.ts",
+      "default": "./dist/registry/read.js"
+    },
+    "./registry/types": {
+      "types": "./dist/registry/types.d.ts",
+      "default": "./dist/registry/types.js"
+    },
+    "./registry/derive": {
+      "types": "./dist/registry/derive.d.ts",
+      "default": "./dist/registry/derive.js"
+    },
+    "./registry/rebuild": {
+      "types": "./dist/registry/rebuild.d.ts",
+      "default": "./dist/registry/rebuild.js"
+    },
+    "./registry/update": {
+      "types": "./dist/registry/update.d.ts",
+      "default": "./dist/registry/update.js"
+    },
+    "./worktree": {
+      "types": "./dist/worktree/index.d.ts",
+      "default": "./dist/worktree/index.js"
+    },
+    "./worktree/create": {
+      "types": "./dist/worktree/create.d.ts",
+      "default": "./dist/worktree/create.js"
+    },
+    "./worktree/meta": {
+      "types": "./dist/worktree/meta.d.ts",
+      "default": "./dist/worktree/meta.js"
+    },
+    "./isolation": {
+      "types": "./dist/isolation/index.d.ts",
+      "default": "./dist/isolation/index.js"
+    },
+    "./isolation/resolve": {
+      "types": "./dist/isolation/resolve.d.ts",
+      "default": "./dist/isolation/resolve.js"
+    },
+    "./isolation/run-scope": {
+      "types": "./dist/isolation/run-scope.d.ts",
+      "default": "./dist/isolation/run-scope.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

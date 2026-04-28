@@ -1,0 +1,179 @@
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import * as harness from "@mobrienv/autoloop-harness";
+import { cliPrintEvent } from "./cli/event-printer.js";
+import { dispatchChain } from "./commands/chain.js";
+import { dispatchConfig } from "./commands/config.js";
+import { dispatchDashboard } from "./commands/dashboard.js";
+import { dispatchGuide } from "./commands/guide.js";
+import { dispatchInspect } from "./commands/inspect.js";
+import { dispatchList } from "./commands/list.js";
+import { dispatchLoops } from "./commands/loops.js";
+import { dispatchMemory } from "./commands/memory.js";
+import { dispatchPiAdapter } from "./commands/pi-adapter.js";
+import { dispatchRun } from "./commands/run.js";
+import { dispatchRuns } from "./commands/runs.js";
+import { dispatchTask } from "./commands/task.js";
+import { dispatchWorktree } from "./commands/worktree.js";
+import { printEmitUsage, printUsage } from "./usage.js";
+
+async function main(): Promise<void> {
+  const argv = process.argv;
+  const args = runtimeArgv(argv);
+  await dispatch(args, argv);
+}
+
+async function dispatch(args: string[], argv: string[]): Promise<void> {
+  const cmd = args[0] ?? "";
+  const selfCmd = selfCommand(argv);
+  const bundleRoot = resolveBundleRoot(argv);
+
+  switch (cmd) {
+    case "--help":
+    case "-h":
+      printUsage();
+      return;
+    case "run":
+      await dispatchRun(args.slice(1), argv, bundleRoot, selfCmd);
+      return;
+    case "emit": {
+      if (!args[1] || args[1] === "--help" || args[1] === "-h") {
+        printEmitUsage();
+        return;
+      }
+      const emitResult = harness.emit(
+        resolveRuntimeProjectDir(),
+        args[1],
+        args.slice(2).join(" "),
+      );
+      if (emitResult.ok) {
+        process.stdout.write(`emitted ${emitResult.topic}\n`);
+        process.exitCode = 0;
+      } else {
+        if (emitResult.error) process.stderr.write(`${emitResult.error}\n`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+    case "list":
+      dispatchList(args.slice(1), bundleRoot);
+      return;
+    case "loops":
+      dispatchLoops(args.slice(1));
+      return;
+    case "inspect":
+      dispatchInspect(args.slice(1));
+      return;
+    case "pi-adapter":
+      dispatchPiAdapter(args.slice(1));
+      return;
+    case "branch-run":
+      harness.runParallelBranchCli(args[1], args[2], selfCmd, cliPrintEvent);
+      return;
+    case "memory":
+      dispatchMemory(args.slice(1));
+      return;
+    case "task":
+      dispatchTask(args.slice(1));
+      return;
+    case "worktree":
+      dispatchWorktree(args.slice(1));
+      return;
+    case "runs":
+      dispatchRuns(args.slice(1));
+      return;
+    case "chain":
+      await dispatchChain(args.slice(1), selfCmd);
+      return;
+    case "config":
+      dispatchConfig(args.slice(1));
+      return;
+    case "guide":
+      dispatchGuide(args.slice(1));
+      return;
+    case "dashboard":
+      dispatchDashboard(args.slice(1), bundleRoot, selfCmd);
+      return;
+    default:
+      await dispatchRun(args, argv, bundleRoot, selfCmd);
+  }
+}
+
+function resolveRuntimeProjectDir(): string {
+  return process.env.AUTOLOOP_PROJECT_DIR || ".";
+}
+
+function runtimeArgv(argv: string[]): string[] {
+  // argv[0] is node, argv[1] is script, rest is user args
+  const userArgs = argv.slice(2);
+  if (userArgs.length === 0) return [];
+
+  // If first arg is a CLI command, use as-is
+  if (isCliCommand(userArgs[0])) return userArgs;
+
+  // For "autoloop run <project>" form, pass through
+  if (userArgs[0] === "run" && userArgs.length >= 2) {
+    return userArgs;
+  }
+
+  return userArgs;
+}
+
+function isCliCommand(value: string): boolean {
+  return [
+    "run",
+    "emit",
+    "inspect",
+    "memory",
+    "task",
+    "list",
+    "loops",
+    "runs",
+    "chain",
+    "pi-adapter",
+    "branch-run",
+    "worktree",
+    "config",
+    "guide",
+    "dashboard",
+    "--help",
+    "-h",
+  ].includes(value);
+}
+
+function selfCommand(argv: string[]): string {
+  // Return a command that re-invokes this program
+  return `'${resolve(argv[1] ?? "autoloop")}'`;
+}
+
+function resolveBundleRoot(argv: string[]): string {
+  const envRoot = process.env.AUTOLOOPS_BUNDLE_ROOT;
+  if (envRoot) return envRoot;
+  // Locate the @mobrienv/autoloop package root via node resolution. This
+  // works in every topology: source checkout (workspace symlink), published
+  // install under node_modules, global install, etc. The presets/ dir ships
+  // inside that package.
+  const require = createRequire(import.meta.url);
+  try {
+    const pkgPath = require.resolve("@mobrienv/autoloop/package.json");
+    return dirname(pkgPath);
+  } catch {
+    // Fallback: argv[1] heuristic for unusual invocations where package
+    // resolution fails (e.g. running dist directly out-of-tree).
+    const scriptPath = argv[1] ?? "";
+    if (scriptPath) {
+      const scriptDir = resolve(scriptPath, "..");
+      const argvCandidate = resolve(scriptDir, "..");
+      if (existsSync(join(argvCandidate, "presets"))) return argvCandidate;
+    }
+    return ".";
+  }
+}
+
+main().catch((err) => {
+  process.stderr.write(
+    `${err instanceof Error ? err.stack || err.message : String(err)}\n`,
+  );
+  process.exit(1);
+});
