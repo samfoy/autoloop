@@ -8,6 +8,8 @@ import os
 import pathlib
 import subprocess
 import sys
+import threading
+import time
 
 
 def extract_text_from_message(message):
@@ -43,43 +45,57 @@ def stream_log_path():
     return pathlib.Path(state_dir) / name
 
 
+def read_grace_sec():
+    # How long to wait after pi emits a terminal event (agent_end or turn_end)
+    # before SIGTERM-ing it. pi sometimes lingers after its response is complete
+    # (observed: 10+ minutes in epoll_wait post task.complete). The grace kill
+    # bounds that hang. Triggered for turn_end as well as agent_end because
+    # reviewer-mode pi may terminate on turn_end without ever emitting agent_end.
+    raw = os.environ.get("AUTOLOOP_PI_POST_RESPONSE_GRACE_SEC", "")
+    if not raw:
+        return 60.0
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return 60.0
+    if val < 0:
+        return 0.0
+    return val
+
+
 cmd = sys.argv[1:-1]
 prompt_path = sys.argv[-1]
 raw_output = ""
 exit_code = 1
+killed_after_response = False
 
-try:
-    with open(prompt_path, "r", encoding="utf-8") as prompt_file:
-        completed = subprocess.run(cmd, stdin=prompt_file, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
-    raw_output = completed.stdout or ""
-    exit_code = completed.returncode
-except FileNotFoundError as exc:
-    raw_output = str(exc)
-    exit_code = 127
-
+log_handle = None
 log_path = stream_log_path()
 if log_path is not None:
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(raw_output)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_handle = log_path.open("w", encoding="utf-8")
+    except OSError:
+        log_handle = None
 
 text_parts = []
 fallback_text = ""
 saw_turn_end = False
 saw_agent_end = False
 error = ""
+raw_chunks = []
 
-for raw_line in raw_output.splitlines():
+
+def handle_line(raw_line):
+    global fallback_text, saw_turn_end, saw_agent_end, error
     line = raw_line.strip()
     if not line:
-        continue
-
+        return
     try:
         event = json.loads(line)
     except Exception:
-        continue
-
+        return
     event_type = event.get("type")
-
     if event_type == "message_update":
         assistant_event = event.get("assistantMessageEvent") or {}
         assistant_type = assistant_event.get("type")
@@ -102,11 +118,107 @@ for raw_line in raw_output.splitlines():
         if not fallback_text:
             fallback_text = extract_text_from_messages(event.get("messages") or [])
 
+
+try:
+    with open(prompt_path, "r", encoding="utf-8") as prompt_file:
+        proc = subprocess.Popen(
+            cmd,
+            stdin=prompt_file,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+
+        grace_sec = read_grace_sec()
+        kill_lock = threading.Lock()
+        response_end_time = [None]
+        kill_timer_started = [False]
+        killed_flag = [False]
+
+        def send_kill_if_alive(hard):
+            # Attempt to kill only if the process is still running. Avoids
+            # falsely flagging a clean natural exit as "killed by us".
+            if proc.poll() is not None:
+                return False
+            try:
+                if hard:
+                    proc.kill()
+                else:
+                    proc.terminate()
+                killed_flag[0] = True
+                return True
+            except Exception:
+                return False
+
+        def grace_killer():
+            # POSIX: SIGTERM then +10s SIGKILL. Windows: TerminateProcess for both.
+            start_ts = response_end_time[0]
+            if start_ts is None:
+                return
+            deadline = start_ts + grace_sec
+            while True:
+                now = time.time()
+                if proc.poll() is not None:
+                    return
+                if now >= deadline:
+                    break
+                time.sleep(min(1.0, deadline - now))
+            send_kill_if_alive(hard=False)
+            # Escalate after 10s if still alive.
+            hard_deadline = time.time() + 10.0
+            while time.time() < hard_deadline:
+                if proc.poll() is not None:
+                    return
+                time.sleep(0.5)
+            send_kill_if_alive(hard=True)
+
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            raw_chunks.append(raw_line)
+            if log_handle is not None:
+                try:
+                    log_handle.write(raw_line)
+                    log_handle.flush()
+                except OSError:
+                    pass
+            handle_line(raw_line)
+            if (saw_agent_end or saw_turn_end) and not kill_timer_started[0]:
+                with kill_lock:
+                    if not kill_timer_started[0]:
+                        kill_timer_started[0] = True
+                        response_end_time[0] = time.time()
+                        if grace_sec <= 0:
+                            send_kill_if_alive(hard=False)
+                        else:
+                            t = threading.Thread(target=grace_killer, daemon=True)
+                            t.start()
+        # Drain: wait for process to actually exit (may be due to kill or natural).
+        exit_code = proc.wait()
+        raw_output = "".join(raw_chunks)
+        killed_after_response = killed_flag[0] and (saw_agent_end or saw_turn_end)
+except FileNotFoundError as exc:
+    raw_output = str(exc)
+    exit_code = 127
+except OSError as exc:
+    raw_output = str(exc)
+    exit_code = 126
+finally:
+    if log_handle is not None:
+        try:
+            log_handle.close()
+        except Exception:
+            pass
+
 text = "".join(text_parts)
 if not text:
     text = fallback_text
 
-failed = exit_code != 0 or (not saw_turn_end and not saw_agent_end) or bool(error)
+# If we killed pi post-agent_end/turn_end, the nonzero exit is expected/intentional.
+effective_exit_bad = (exit_code != 0) and not killed_after_response
+failed = effective_exit_bad or (not saw_turn_end and not saw_agent_end) or bool(error)
 verbose = os.environ.get("AUTOLOOP_LOG_LEVEL", "") == "debug"
 output = ""
 
